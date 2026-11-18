@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Avon Gorge cave survey</title>
+<!DOCTYPE html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Avon Gorge cave survey</title><meta name="robots" content="noindex,nofollow">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <style>
 *{box-sizing:border-box}body{margin:0;font:14px Arial,sans-serif;display:flex;height:100vh;color:#222}
@@ -15,8 +15,8 @@ dialog input,dialog select,dialog textarea{width:100%;padding:3px}.bat{border:1p
 small{color:#777}@media(max-width:760px){body{flex-direction:column-reverse}#side{width:100%;height:58vh}#map{height:42vh;flex:none}}
 </style></head><body>
 <div id="side"><header><h1>Avon Gorge caves &ndash; bat survey</h1>
-<button onclick="addCave()">+ Add cave</button><button onclick="exp('json')">Export JSON</button><button onclick="exp('csv')">Export CSV</button><button onclick="document.getElementById('imp').click()">Import</button><input id="imp" type="file" accept=".json" hidden>
-<div id="sum" class="sub" style="color:#cde"></div></header>
+<button onclick="addCave()">+ Add cave</button><button onclick="layerDlg()">+ Map layer</button><button onclick="ghDlg()">GitHub sync</button><button onclick="linkFile()">Link save file</button><button onclick="exp('json')">Export JSON</button><button onclick="exp('csv')">Export CSV</button><button onclick="document.getElementById('imp').click()">Import</button><input id="imp" type="file" accept=".json" hidden>
+<div id="sum" class="sub" style="color:#cde"></div><div class="sub" style="color:#cde;margin-top:3px">Survey records are stored only on this device (in this browser) and are not shared. Use GitHub sync, Link save file or Export JSON to keep a backup.</div><div id="bk2" style="margin-top:3px;font-size:12px;color:#ffd9a0"></div></header>
 <div class="bar"><input id="q" placeholder="Search caves"><select id="bk"><option value="">Both banks</option><option>West</option><option>East</option><option>Unknown</option></select></div>
 <div id="list"></div><div id="det"><span class="sub">Select a cave from the list or map.</span></div></div>
 <div id="map"></div><dialog id="dlg"></dialog>
@@ -54,7 +54,7 @@ const D=[
 ];
 const SP=["Greater horseshoe","Lesser horseshoe","Natterer's","Daubenton's","Whiskered/Brandt's","Brown long-eared","Barbastelle","Bechstein's","Serotine","Noctule","Common pipistrelle","Soprano pipistrelle","Myotis sp.","Unidentified"];
 const K="avongorge_bats_v1";let S;try{S=JSON.parse(localStorage.getItem(K))}catch(x){}S=S||{edits:{},added:[],visits:{}};
-const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(x){alert("Could not save to browser storage; export now.")}};
+let fh=null,dirty=0;const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(x){alert("Could not save to browser storage; export now.")}dirty++;writeFile();ghSoon()};
 const e=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const $=id=>document.getElementById(id),fd=d=>d?new Date(d).toLocaleDateString("en-GB"):"";
 const keys=["id","name","mcr","loc","bank","lat","lon","ngr","len","dep","note"];
@@ -62,7 +62,31 @@ const caves=()=>D.map(a=>Object.assign(Object.fromEntries(keys.map((k,i)=>[k,a[i
 const V=id=>S.visits[id]||[],nb=id=>V(id).reduce((n,v)=>n+v.bats.reduce((m,b)=>m+(+b.n||0),0),0);
 const stat=id=>!V(id).length?"#888":nb(id)?"#d62728":"#2ca02c";
 const map=L.map("map").setView([51.4565,-2.631],15);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
+const osm=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
+const topo=L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{subdomains:"abc",maxNativeZoom:17,maxZoom:19,attribution:"Map data &copy; OpenStreetMap contributors, SRTM | Style &copy; OpenTopoMap (CC-BY-SA)"});
+const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Tiles &copy; Esri, Maxar, Earthstar Geographics"});
+const hill=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}",{maxNativeZoom:16,maxZoom:19,opacity:.6,attribution:"Hillshade &copy; Esri"});
+// BGS 1:50k bedrock: the service only draws between about 1:100,000 and 1:25,000, so request at zoom 12-13 and enlarge when zoomed in
+const geo=L.tileLayer.wms("https://map.bgs.ac.uk/arcgis/services/BGS_Detailed_Geology/MapServer/WMSServer",{layers:"BGS.50k.Bedrock",format:"image/png",transparent:true,crs:L.CRS.EPSG4326,minZoom:12,minNativeZoom:12,maxNativeZoom:13,maxZoom:19,opacity:.6,attribution:"Contains British Geological Survey materials &copy; UKRI 2026"});
+const NLS="Courtesy of the National Library of Scotland";
+const os10k=L.tileLayer("https://mapseries-tilesets.s3.amazonaws.com/os/britain10knatgrid/{z}/{x}/{y}.png",{maxNativeZoom:16,maxZoom:19,attribution:NLS+" (OS 1:10,560, 1940s-60s)"});
+const os25=L.layerGroup([L.tileLayer("https://geo.nls.uk/mapdata3/os/25_inch_holes_england/{z}/{x}/{y}.png",{maxNativeZoom:17,maxZoom:19}),L.tileLayer("https://mapseries-tilesets.s3.amazonaws.com/25_inch/gloucestershire/{z}/{x}/{y}.png",{maxNativeZoom:17,maxZoom:19,attribution:NLS+" (OS 25-inch, 1892-1914)"})]);
+// Environment Agency LiDAR 1 m hillshade (ArcGIS image service, requested in Web Mercator)
+const Img=L.TileLayer.extend({getTileUrl(c){const z=this._getZoomForUrl(),n=40075016.6855785/Math.pow(2,z),x0=c.x*n-20037508.3428,y1=20037508.3428-c.y*n;return this._url+"/exportImage?f=image&format=png&transparent=true&bboxSR=3857&imageSR=3857&size=256,256&bbox="+[x0,y1-n,x0+n,y1].join(",")}});
+const lidar=new Img("https://environment.data.gov.uk/image/rest/services/SURVEY/LIDAR_Composite_1m_DTM_2022_Hillshade/ImageServer",{maxNativeZoom:18,maxZoom:19,opacity:.6,attribution:"LiDAR &copy; Environment Agency 2022"});
+// Natural England designations, fetched for the visible area
+const NE="https://services.arcgis.com/JJzESW51TqeY9uat/ArcGIS/rest/services/";
+function neLayer(svc,color,label){const g=L.geoJSON(null,{style:{color,weight:2,fillOpacity:.1},attribution:"&copy; Natural England; contains OS data &copy; Crown copyright and database right 2026",onEachFeature:(f,l)=>{const q=f.properties||{};l.bindPopup("<b>"+e(label)+"</b><br>"+e(q.SSSI_NAME||q.SAC_NAME||q.NNR_NAME||q.NAME||""))}});
+ const load=async()=>{if(!map.hasLayer(g))return;const b=map.getBounds(),u=NE+svc+"/FeatureServer/0/query?where=1%3D1&geometry="+[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()]+"&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=*&outSR=4326&maxAllowableOffset=0.00005&f=geojson";try{const j=await(await fetch(u)).json();g.clearLayers();g.addData(j)}catch(x){}};
+ g.on("add",load);map.on("moveend",load);return g}
+const sssi=neLayer("SSSI_England","#7b2d8e","SSSI"),sac=neLayer("Special_Areas_of_Conservation_England","#c2185b","SAC"),nnr=neLayer("National_Nature_Reserves_England","#00796b","National Nature Reserve");
+const lc=L.control.layers({"OpenStreetMap":osm,"OpenTopoMap (terrain)":topo,"Satellite (Esri)":sat,"Old OS 1:10,560, 1940s-60s (NLS)":os10k,"Old OS 25-inch, 1892-1914 (NLS, Gloucestershire side)":os25},{"Bedrock geology (BGS)":geo,"Hillshade (Esri)":hill,"LiDAR hillshade 1 m (EA)":lidar,"SSSI (Natural England)":sssi,"SAC (Natural England)":sac,"National Nature Reserve (Natural England)":nnr},{collapsed:true}).addTo(map);
+let CL=[];try{CL=JSON.parse(localStorage.getItem("agbs_layers"))||[]}catch(x){}const CLs={};
+function addCL(c){const l=L.tileLayer(c.url,{maxZoom:19,attribution:e(c.name)});CLs[c.name]=l;lc.addBaseLayer(l,c.name+" (custom)")}CL.forEach(addCL);
+function layerDlg(){$("dlg").innerHTML=`<h3>Custom map layers</h3><p class="sub">Paste an XYZ tile URL containing {z}, {x} and {y}, including any API key (for example from MapTiler, Thunderforest or OS Maps). It is saved only in this browser, never in your records or exports.</p><label>Name</label><input id="ln"><label>Tile URL (https)</label><input id="lu" placeholder="https://.../{z}/{x}/{y}.png?key=..."><p><button onclick="saveCL()"><b>Add</b></button> <button onclick="$('dlg').close()">Close</button></p>${CL.map((c,i)=>`<div class="visit">${e(c.name)} <button style="float:right" onclick="delCL(${i})">Remove</button></div>`).join("")}`;$("dlg").showModal()}
+function saveCL(){const n=$("ln").value.trim(),u=$("lu").value.trim();if(!n||!/^https:\/\//.test(u)||!/\{z\}/.test(u)||!/\{x\}/.test(u)||!/\{y\}/.test(u)){alert("Enter a name and an https URL containing {z}, {x} and {y}.");return}CL.push({name:n,url:u});localStorage.setItem("agbs_layers",JSON.stringify(CL));addCL(CL[CL.length-1]);layerDlg()}
+function delCL(i){const c=CL.splice(i,1)[0];localStorage.setItem("agbs_layers",JSON.stringify(CL));if(CLs[c.name]){lc.removeLayer(CLs[c.name]);map.removeLayer(CLs[c.name])}layerDlg()}
+const opc=L.control({position:"bottomleft"});opc.onAdd=()=>{const d=L.DomUtil.create("div","leaflet-bar");d.style.cssText="background:#fff;padding:4px 8px;font-size:12px";d.innerHTML='Overlay opacity <input type="range" min="10" max="100" value="60">';L.DomEvent.disableClickPropagation(d);d.querySelector("input").oninput=ev=>{[geo,hill,lidar].forEach(l=>l.setOpacity(ev.target.value/100))};return d};opc.addTo(map);
 const mk={};let cur=null;
 function refresh(){const q=$("q").value.toLowerCase(),b=$("bk").value,all=caves();
  Object.values(mk).forEach(m=>m.remove());
@@ -93,9 +117,41 @@ function saveC(id){const f=(k,v)=>v===""?null:+v,o={name:$("cn").value,lat:f(0,$
  if(id){const a=S.added.find(c=>c.id==id);a?Object.assign(a,o):S.edits[id]=Object.assign(S.edits[id]||{},o)}else{id="u"+Date.now();S.added.push(Object.assign({id},o))}
  save();$("dlg").close();sel(id)}
 function dl(n,t,m){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([t],{type:m}));a.download=n;a.click()}
-function exp(t){const d=new Date().toISOString().slice(0,10);if(t=="json")return dl(`avon-gorge-bats-${d}.json`,JSON.stringify(S,null,1),"application/json");
+function exp(t){const d=new Date().toISOString().slice(0,10);if(t=="json"){dirty=0;note();return dl(`avon-gorge-bats-${d}.json`,JSON.stringify(S,null,1),"application/json")}
  const q=x=>`"${String(x??"").replace(/"/g,'""')}"`,r=[["Cave","Bank","Locality","NGR","Date","Surveyors","Species","Number","Sex","State","Location in cave","Ring/ID","Bat remarks","Visit notes"].map(q).join(",")];
  caves().forEach(c=>V(c.id).forEach(v=>(v.bats.length?v.bats:[{}]).forEach(b=>r.push([c.name,c.bank,c.loc,c.ngr,v.date,v.surv,b.sp,b.n,b.sex,b.st,b.loc,b.ring,b.rem,v.notes].map(q).join(",")))));dl(`avon-gorge-bats-${d}.csv`,"\ufeff"+r.join("\n"),"text/csv")}
 $("imp").onchange=ev=>{const f=ev.target.files[0];if(!f)return;f.text().then(t=>{try{const j=JSON.parse(t);if(!j.visits)throw 0;if(confirm("Replace all records in this browser with the imported file?")){S={edits:j.edits||{},added:j.added||[],visits:j.visits};save();cur=null;refresh()}}catch(x){alert("Not a valid export file.")}})};
+let gh=null,ghMsg="",ghT=0,ghSha=null,ghBlock=false;try{gh=JSON.parse(localStorage.getItem("agbs_gh"))}catch(x){}
+const on=()=>gh&&gh.token;
+const note=()=>{$("bk2").textContent=[fh?"Autosaving to file: "+fh.name:"",on()?ghMsg:"",!fh&&!on()&&dirty?"Unbacked-up changes: "+dirty+". Use GitHub sync, link a save file or export JSON.":""].filter(Boolean).join(" \u00b7 ")};
+const b64=t=>btoa(unescape(encodeURIComponent(t))),unb64=t=>decodeURIComponent(escape(atob(t.replace(/\s/g,""))));
+const ghU=()=>`https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/${gh.path}`,ghH=()=>({Authorization:"Bearer "+gh.token,Accept:"application/vnd.github+json"});
+const applyS=j=>{S={edits:j.edits||{},added:j.added||[],visits:j.visits};try{localStorage.setItem(K,JSON.stringify(S))}catch(x){}cur=null;dirty=0;ghBlock=false;refresh()};
+async function ghPull(){const r=await fetch(ghU()+(gh.branch?"?ref="+encodeURIComponent(gh.branch):""),{headers:ghH(),cache:"no-store"});
+ if(r.status==404){ghSha=null;return null}if(!r.ok)throw new Error("GitHub said "+r.status+(r.status==401?" (token not accepted)":r.status==403?" (token lacks permission)":""));
+ const j=await r.json();ghSha=j.sha;const d=JSON.parse(unb64(j.content));if(!d.visits)throw new Error("That file is not a survey records file");return d}
+async function ghPush(){if(!on()||ghBlock)return;ghMsg="Saving to GitHub\u2026";note();
+ try{const r=await fetch(ghU(),{method:"PUT",headers:ghH(),body:JSON.stringify({message:"Update survey records "+new Date().toISOString().slice(0,16),content:b64(JSON.stringify(S,null,1)),sha:ghSha||undefined,branch:gh.branch||undefined})});
+ if(r.ok){ghSha=(await r.json()).content.sha;dirty=0;ghMsg="Saved to GitHub "+new Date().toLocaleTimeString("en-GB")}
+ else if(r.status==409||r.status==422){ghBlock=true;ghMsg="\u26a0 GitHub copy has changed elsewhere. Open GitHub sync and pull before saving."}
+ else ghMsg="\u26a0 GitHub save failed ("+r.status+"). Records are still in this browser; export a backup."}catch(x){ghMsg="\u26a0 GitHub save failed (offline?). Records are still in this browser."}note()}
+function ghSoon(){clearTimeout(ghT);if(on()&&!ghBlock)ghT=setTimeout(ghPush,2500)}
+function ghDlg(){const g=gh||{};$("dlg").innerHTML=`<h3>GitHub sync</h3><p class="sub">Saves your records to a JSON file in a <b>private</b> repository (never the public page's repo). Create a fine-grained personal access token limited to that one repo with <b>Contents: read and write</b> and an expiry date. The token is kept only in this browser.</p>
+<div class="g2"><div><label>GitHub username</label><input id="go" value="${e(g.owner||"")}"></div><div><label>Private repo name</label><input id="gr" value="${e(g.repo||"")}"></div><div><label>File path</label><input id="gp" value="${e(g.path||"avon-gorge-bats.json")}"></div><div><label>Branch (blank = default)</label><input id="gb" value="${e(g.branch||"")}"></div></div>
+<label>Access token</label><input id="gt" type="password" value="${e(g.token||"")}" autocomplete="off"><p><button onclick="ghConnect()"><b>Connect and sync</b></button> ${on()?'<button onclick="ghPullBtn()">Pull from GitHub</button> <button onclick="ghOff()">Disconnect</button> ':""}<button onclick="$(\'dlg\').close()">Close</button></p><div id="gm" class="sub"></div>`;$("dlg").showModal()}
+async function ghConnect(){const v=i=>$(i).value.trim();gh={owner:v("go"),repo:v("gr"),path:v("gp").replace(/^\//,""),branch:v("gb"),token:v("gt")};
+ if(!gh.owner||!gh.repo||!gh.path||!gh.token){$("gm").textContent="Please fill in every field except branch.";return}
+ try{const j=await ghPull();localStorage.setItem("agbs_gh",JSON.stringify(gh));ghBlock=false;
+  if(j&&confirm("Records already exist on GitHub.\nOK = load them here (replaces records in this browser).\nCancel = keep this browser's records and overwrite the GitHub copy.")){applyS(j);ghMsg="Loaded from GitHub"}else await ghPush();
+  note();$("dlg").close()}catch(x){gh=null;try{gh=JSON.parse(localStorage.getItem("agbs_gh"))}catch(y){}$("gm").textContent="Could not connect: "+x.message}}
+async function ghPullBtn(){try{const j=await ghPull();if(!j){$("gm").textContent="No file on GitHub yet.";return}if(confirm("Replace records in this browser with the GitHub copy?")){applyS(j);ghMsg="Loaded from GitHub "+new Date().toLocaleTimeString("en-GB");note();$("dlg").close()}}catch(x){$("gm").textContent="Pull failed: "+x.message}}
+function ghOff(){if(confirm("Remove the token and GitHub settings from this browser? Records on GitHub stay as they are.")){gh=null;localStorage.removeItem("agbs_gh");ghMsg="";note();$("dlg").close()}}
+async function writeFile(){if(fh){try{const w=await fh.createWritable();await w.write(JSON.stringify(S,null,1));await w.close();dirty=0}catch(x){fh=null;alert("Link to the save file was lost; please link it again.")}}note()}
+async function linkFile(){if(!window.showSaveFilePicker)return alert("This browser cannot save straight to a file (use Chrome or Edge on a computer). Please use Export JSON instead.");
+ const t=[{description:"JSON",accept:{"application/json":[".json"]}}];
+ try{if(confirm("OK = open an existing save file (its records will replace those in this browser).\nCancel = create a new save file from the records in this browser.")){[fh]=await showOpenFilePicker({types:t});await fh.requestPermission({mode:"readwrite"});const j=JSON.parse(await(await fh.getFile()).text());if(!j.visits)throw 0;S={edits:j.edits||{},added:j.added||[],visits:j.visits};try{localStorage.setItem(K,JSON.stringify(S))}catch(x){}cur=null;refresh();dirty=0}
+ else{fh=await showSaveFilePicker({suggestedName:"avon-gorge-bats.json",types:t});await writeFile()}note()}catch(x){fh=null;if(x.name!="AbortError")alert("Could not link that file.")}}
+addEventListener("beforeunload",ev=>{if(dirty&&!fh){ev.preventDefault();ev.returnValue=""}});
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
 $("q").oninput=$("bk").onchange=refresh;refresh();
 </script></body></html>
