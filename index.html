@@ -1,0 +1,101 @@
+<!DOCTYPE html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Avon Gorge cave survey</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px Arial,sans-serif;display:flex;height:100vh;color:#222}
+#side{width:380px;display:flex;flex-direction:column;border-right:1px solid #ccc;background:#fafafa}
+#map{flex:1}header{padding:8px 10px;background:#1f4e78;color:#fff}header h1{font-size:16px;margin:0 0 6px}
+button,select,input,textarea{font:inherit}button{cursor:pointer;padding:4px 8px;border:1px solid #999;background:#fff;border-radius:4px}
+header button{margin:2px 2px 0 0;font-size:12px}.bar{display:flex;gap:6px;padding:6px 10px}.bar input{flex:1}
+#list{overflow:auto;flex:1;min-height:90px}.row{padding:6px 10px;border-bottom:1px solid #e3e3e3;cursor:pointer}.row:hover,.row.on{background:#e8f0fa}
+.sub{color:#666;font-size:12px}.tag{display:inline-block;padding:0 5px;border-radius:8px;font-size:11px;background:#ddd;margin-left:4px}.tag.r{background:#f4b6b6}.tag.g{background:#bfe3bf}.tag.o{background:#ffd9a0}
+#det{overflow:auto;max-height:48%;border-top:2px solid #1f4e78;padding:8px 10px;background:#fff}#det h2{font-size:15px;margin:0 0 4px}
+.visit{border:1px solid #ccc;border-radius:4px;padding:5px 7px;margin:5px 0;background:#f7f7f7}
+dialog{width:min(640px,96vw);max-height:92vh;overflow:auto;border:1px solid #666;border-radius:6px}dialog label{display:block;margin:5px 0 2px;font-size:12px;color:#444}
+dialog input,dialog select,dialog textarea{width:100%;padding:3px}.bat{border:1px solid #bbb;padding:5px;margin:5px 0;background:#f4f8fc}.g2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+small{color:#777}@media(max-width:760px){body{flex-direction:column-reverse}#side{width:100%;height:58vh}#map{height:42vh;flex:none}}
+</style></head><body>
+<div id="side"><header><h1>Avon Gorge caves &ndash; bat survey</h1>
+<button onclick="addCave()">+ Add cave</button><button onclick="exp('json')">Export JSON</button><button onclick="exp('csv')">Export CSV</button><button onclick="document.getElementById('imp').click()">Import</button><input id="imp" type="file" accept=".json" hidden>
+<div id="sum" class="sub" style="color:#cde"></div></header>
+<div class="bar"><input id="q" placeholder="Search caves"><select id="bk"><option value="">Both banks</option><option>West</option><option>East</option><option>Unknown</option></select></div>
+<div id="list"></div><div id="det"><span class="sub">Select a cave from the list or map.</span></div></div>
+<div id="map"></div><dialog id="dlg"></dialog>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+// id,name,MCR id,locality,bank,lat,lon,NGR,length,depth,notes  (source: Mendip Cave Registry, mcra.org.uk/registry)
+const D=[
+["lcc","Lower Cliff Cave",1911,"Stokeleigh Camp","West",51.45735,-2.63469,"ST 55999 73344",10,3,"Narrow rift ending in stalagmite choke."],
+["ucc","Upper Cliff Cave",1912,"Stokeleigh Camp","West",51.45735,-2.63469,"ST 55999 73344",15,2,"6 m above Lower Cliff Cave in ivy; difficult climb."],
+["ivy","Ivy Hole",3066,"Stokeleigh Camp","West",51.45722,-2.63522,"ST 55962 73330",2,1,"Tiny hole at end of ivy-covered overhang."],
+["scc","Stokeleigh Camp Cave",2006,"Stokeleigh Camp","West",51.45708,-2.63394,"ST 56051 73313",10,1,"Ledge below N edge of camp; crawl. Alt: Rodway Ruckle."],
+["ian","Ian's Cave",1904,"Stokeleigh Camp","West",51.45706,-2.63385,"ST 56057 73311",2,1,"Choked archway, may connect to Stokeleigh Camp Cave."],
+["bou","Boulder Cave",1811,"Stokeleigh Camp","West",51.45696,-2.63352,"ST 5608 7330",3,1,"Low chamber with jammed boulder."],
+["c2","Cave Two",3151,"Leigh Woods","West",51.45768,-2.63328,"ST 56097 73379",0,0,"LOST (Tratman); position approximate."],
+["ske","Skeleton Cave",2011,"Stokeleigh Camp","West",51.4564,-2.63286,"ST 56125 73237",4,2,"Circular chamber; Neolithic remains (archaeological)."],
+["hpr","Hundred Percent Rock Shelter",3065,"Stokeleigh Camp","West",51.45617,-2.63315,"ST 56105 73212",1,1,"Small shelter leading to tiny tube."],
+["sad","Sadam's Cave",2116,"Leigh Woods","West",51.45921,-2.63297,"ST 5612 7355",0,0,"No description; low-precision position."],
+["lsr","L-Shaped Rift",3030,"Leigh Woods","West",51.45956,-2.63244,"ST 56157 73588",7,3,"Narrow rift behind detached boulder."],
+["nvc","Nightingale Valley Cave",1997,"Nightingale Valley","West",51.4548,-2.63447,"ST 56012 73060",8,4,"High on S side; phreatic tube chokes. Alt: Bloke's Cave."],
+["cic","Cinema Cave",2106,"Nightingale Valley","West",51.45517,-2.63234,"ST 5616 7310",2,1,"Low slot high on S bank."],
+["crs","Cinema Rock Shelter",3068,"Nightingale Valley","West",51.45497,-2.63188,"ST 56192 73077",2,1,"Overhang only."],
+["lw3","Leigh Woods Mine 3",3811,"Leigh Woods","West",51.46135,-2.63703,"ST 5584 7379",null,null,"2 m choked sloping mine passage."],
+["rwh","Red Wall Holes",3420,"Leigh Woods","West",51.46166,-2.63309,"ST 56114 73822",null,null,"Solutional cavities in red cliff, W edge of the Great Slab."],
+["ft1","Avon Gorge Firing Tunnel 1",2110,"Hotwells","East",51.45832,-2.63138,"ST 5623 7345",0,0,"Low-precision position; bank to be checked."],
+["ft2","Avon Gorge Firing Tunnel 2",2111,"Hotwells","East",51.45896,-2.6298,"ST 5634 7352",0,0,"Low-precision position; bank to be checked."],
+["ft3","Avon Gorge Firing Tunnel 3",2112,"Hotwells","East",51.45726,-2.62891,"ST 5640 7333",0,0,"Low-precision position; bank to be checked."],
+["prt","Portnalls Railway Tunnels",2107,"Hotwells","East",51.45682,-2.62853,"ST 56426 73281",160,0,"Old railway tunnels; WWII shelter, firing range; all access sealed."],
+["jak","Jack's Hole",1905,"Hotwells","East",51.45758,-2.62856,"ST 56425 73366",5,0,"Part-quarried shelter above Battleship Buttress."],
+["u6","U6",2105,"Hotwells","East",51.45609,-2.6271,"ST 56525 73199",0,0,"LOST. Alt: Bin Laden's Cave."],
+["itd","In Through The Out Door Cave",3211,"Hotwells","East",51.45647,-2.62706,"ST 56528 73241",3,3,"Short vertical loop above Giant's Cave balcony; climb."],
+["gcb","Giant's Cave Balcony",3217,"Hotwells","East",51.4564,-2.62709,"ST 56526 73233",65,27,"Viewing-platform entrance to Giant's Cave (same system)."],
+["gc","Giant's Cave",1827,"Clifton Down","East",51.45663,-2.6264,"ST 56574 73259",65,27,"Show cave, medieval hermitage; entered via 1835 tunnel; CROW land."],
+// No coordinates retrieved yet: use Edit to add (copy WGS84 from MCR page)
+...[["Observatory Hill Cave",2123,"Clifton Down","East"],["Lower Cave",2016,"Hotwells","East"],["Upper Cave",2015,"Hotwells","East"],["Hades Cave",1828,"Gorge","Unknown"],["Hell Gates Cave",3210,"Gorge","Unknown"],["Burwalls Cave",1812,"Gorge","Unknown"],["The Adit",1810,"Gorge","Unknown"],["North Wall Hollow",3421,"Gorge","Unknown"],["Zig Zag Rock Shelter",2709,"Gorge","Unknown"],["Colonnade Cave",3101,"Gorge","Unknown"],["Clifton Rocks Railway",2280,"Hotwells","East"],["Rownham Hill Cave",2704,"Gorge","Unknown"],["Slab Quarry Cave",2000,"Leigh Woods","West"],["Knicker Nitch",1910,"Leigh Woods","West"],["Mouse Hole",1996,"Leigh Woods","West"],["Pool Cave",1999,"Leigh Woods","West"],["Percavity Cave",1998,"Leigh Woods","West"],["Mercavity Cave",1914,"Leigh Woods","West"],["Shatter Hole",2010,"Leigh Woods","West"],["Main Wall Grotto",1913,"Gorge","Unknown"],["Leigh Down Mine",1995,"Leigh Woods","West"]].map(a=>["m"+a[1],a[0],a[1],a[2],a[3],null,null,"",null,null,"Coordinates not yet entered; see MCR page."])
+];
+const SP=["Greater horseshoe","Lesser horseshoe","Natterer's","Daubenton's","Whiskered/Brandt's","Brown long-eared","Barbastelle","Bechstein's","Serotine","Noctule","Common pipistrelle","Soprano pipistrelle","Myotis sp.","Unidentified"];
+const K="avongorge_bats_v1";let S;try{S=JSON.parse(localStorage.getItem(K))}catch(x){}S=S||{edits:{},added:[],visits:{}};
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(x){alert("Could not save to browser storage; export now.")}};
+const e=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $=id=>document.getElementById(id),fd=d=>d?new Date(d).toLocaleDateString("en-GB"):"";
+const keys=["id","name","mcr","loc","bank","lat","lon","ngr","len","dep","note"];
+const caves=()=>D.map(a=>Object.assign(Object.fromEntries(keys.map((k,i)=>[k,a[i]])),S.edits[a[0]]||{})).concat(S.added);
+const V=id=>S.visits[id]||[],nb=id=>V(id).reduce((n,v)=>n+v.bats.reduce((m,b)=>m+(+b.n||0),0),0);
+const stat=id=>!V(id).length?"#888":nb(id)?"#d62728":"#2ca02c";
+const map=L.map("map").setView([51.4565,-2.631],15);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
+const mk={};let cur=null;
+function refresh(){const q=$("q").value.toLowerCase(),b=$("bk").value,all=caves();
+ Object.values(mk).forEach(m=>m.remove());
+ all.forEach(c=>{if(c.lat==null)return;mk[c.id]=L.circleMarker([c.lat,c.lon],{radius:8,color:c.bank=="West"?"#e07b00":c.bank=="East"?"#1f77b4":"#555",weight:3,fillColor:stat(c.id),fillOpacity:.9}).addTo(map).bindTooltip(c.name).on("click",()=>sel(c.id))});
+ $("list").innerHTML=all.filter(c=>(!b||c.bank==b)&&(c.name+c.loc).toLowerCase().includes(q)).map(c=>`<div class="row ${c.id==cur?"on":""}" onclick="sel('${c.id}')"><b>${e(c.name)}</b>${V(c.id).length?`<span class="tag ${nb(c.id)?"r":"g"}">${V(c.id).length} visit${V(c.id).length>1?"s":""}${nb(c.id)?", "+nb(c.id)+" bats":""}</span>`:""}${c.lat==null?'<span class="tag o">no coords</span>':""}<div class="sub">${e(c.bank)} &middot; ${e(c.loc)}</div></div>`).join("");
+ const vs=Object.values(S.visits).flat();$("sum").textContent=`${all.length} caves, ${all.filter(c=>c.lat!=null).length} mapped, ${all.filter(c=>V(c.id).length).length} surveyed, ${vs.length} visits`}
+function sel(id){cur=id;const c=caves().find(x=>x.id==id);if(c.lat!=null)map.setView([c.lat,c.lon],Math.max(map.getZoom(),17));
+ $("det").innerHTML=`<h2>${e(c.name)}</h2><div class="sub">${e(c.bank)} bank &middot; ${e(c.loc)}${c.ngr?" &middot; "+e(c.ngr):""}${c.len!=null?` &middot; ${c.len} m long, ${c.dep} m deep`:""}</div><p>${e(c.note)}</p>
+ <button onclick="visit('${id}')">+ Add survey visit</button> <button onclick="editCave('${id}')">Edit cave</button> ${c.mcr?`<a href="https://www.mcra.org.uk/registry/sitedetails.php?id=${c.mcr}" target="_blank" rel="noopener">MCR record</a>`:""}
+ <h3 style="font-size:13px">Survey visits</h3>${V(id).map((v,i)=>`<div class="visit"><b>${fd(v.date)}</b> &ndash; ${e(v.surv)} <button style="float:right" onclick="visit('${id}',${i})">Edit</button><br>${v.bats.length?v.bats.map(b=>`${e(b.n)} &times; ${e(b.sp)}${b.sex?", "+e(b.sex):""}${b.st?", "+e(b.st):""}${b.loc?" ("+e(b.loc)+")":""}${b.ring?" ring "+e(b.ring):""}${b.rem?" &ndash; "+e(b.rem):""}`).join("<br>"):"<i>No bats found</i>"}${v.notes?`<br><small>${e(v.notes)}</small>`:""}</div>`).join("")||'<span class="sub">None recorded.</span>'}`;refresh()}
+const opt=(a,v)=>a.map(x=>`<option${x==v?" selected":""}>${e(x)}</option>`).join("");
+const batRow=(b={})=>`<div class="bat"><div class="g2"><div><label>Species</label><select class="sp">${opt(SP,b.sp)}</select></div><div><label>Number</label><input class="n" type="number" min="1" value="${e(b.n||1)}"></div>
+<div><label>Sex</label><select class="sx">${opt(["Unknown","Male","Female","Mixed"],b.sex)}</select></div><div><label>State</label><select class="st">${opt(["Torpid","Awake","Active/flying","Dead"],b.st)}</select></div>
+<div><label>Location in cave</label><input class="lc" value="${e(b.loc)}"></div><div><label>Ring / ID number</label><input class="rg" value="${e(b.ring)}"></div></div><label>Remarks</label><input class="rm" value="${e(b.rem)}"><button type="button" onclick="this.parentNode.remove()">Remove bat record</button></div>`;
+function visit(id,i){const v=i==null?{date:new Date().toISOString().slice(0,10),surv:"",bats:[],notes:""}:V(id)[i];
+ $("dlg").innerHTML=`<h3>${i==null?"New":"Edit"} survey visit &ndash; ${e(caves().find(c=>c.id==id).name)}</h3><div class="g2"><div><label>Date</label><input id="vd" type="date" value="${v.date}"></div><div><label>Surveyors</label><input id="vs" value="${e(v.surv)}"></div></div>
+ <h4>Bats found <small>(none added = no bats)</small></h4><div id="bats">${v.bats.map(batRow).join("")}</div><button type="button" onclick="$('bats').insertAdjacentHTML('beforeend',batRow())">+ Add bat record</button>
+ <label>Other notes (conditions, disturbance, signs, temperature&hellip;)</label><textarea id="vn" rows="4">${e(v.notes)}</textarea><p><button onclick="saveV('${id}',${i==null?-1:i})"><b>Save</b></button> ${i==null?"":`<button onclick="delV('${id}',${i})">Delete visit</button> `}<button onclick="$('dlg').close()">Cancel</button></p>`;$("dlg").showModal()}
+function saveV(id,i){const v={date:$("vd").value,surv:$("vs").value,notes:$("vn").value,bats:[...document.querySelectorAll("#bats .bat")].map(r=>({sp:r.querySelector(".sp").value,n:r.querySelector(".n").value,sex:r.querySelector(".sx").value,st:r.querySelector(".st").value,loc:r.querySelector(".lc").value,ring:r.querySelector(".rg").value,rem:r.querySelector(".rm").value}))};
+ if(!v.date){alert("Please enter a date.");return}const a=S.visits[id]=V(id).slice();i<0?a.push(v):a[i]=v;a.sort((x,y)=>y.date.localeCompare(x.date));save();$("dlg").close();sel(id)}
+function delV(id,i){if(confirm("Delete this visit record?")){S.visits[id].splice(i,1);save();$("dlg").close();sel(id)}}
+function caveForm(c,isNew){$("dlg").innerHTML=`<h3>${isNew?"Add":"Edit"} cave</h3><label>Name</label><input id="cn" value="${e(c.name)}"><div class="g2"><div><label>Latitude (WGS84)</label><input id="cla" value="${c.lat??""}"></div><div><label>Longitude</label><input id="clo" value="${c.lon??""}"></div>
+ <div><label>Bank</label><select id="cb">${opt(["West","East","Unknown"],c.bank)}</select></div><div><label>Locality</label><input id="cl" value="${e(c.loc)}"></div><div><label>NGR</label><input id="cg" value="${e(c.ngr)}"></div><div><label>MCR ID</label><input id="cm" value="${e(c.mcr)}"></div></div>
+ <label>Notes</label><textarea id="cno" rows="3">${e(c.note)}</textarea><p><button onclick="saveC('${c.id||""}')"><b>Save</b></button> <button onclick="$('dlg').close()">Cancel</button></p>`;$("dlg").showModal()}
+const addCave=()=>caveForm({},true),editCave=id=>caveForm(caves().find(c=>c.id==id));
+function saveC(id){const f=(k,v)=>v===""?null:+v,o={name:$("cn").value,lat:f(0,$("cla").value),lon:f(0,$("clo").value),bank:$("cb").value,loc:$("cl").value,ngr:$("cg").value,mcr:$("cm").value,note:$("cno").value};
+ if(!o.name||(o.lat==null)!=(o.lon==null)){alert("Name needed; give both latitude and longitude, or neither.");return}
+ if(id){const a=S.added.find(c=>c.id==id);a?Object.assign(a,o):S.edits[id]=Object.assign(S.edits[id]||{},o)}else{id="u"+Date.now();S.added.push(Object.assign({id},o))}
+ save();$("dlg").close();sel(id)}
+function dl(n,t,m){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([t],{type:m}));a.download=n;a.click()}
+function exp(t){const d=new Date().toISOString().slice(0,10);if(t=="json")return dl(`avon-gorge-bats-${d}.json`,JSON.stringify(S,null,1),"application/json");
+ const q=x=>`"${String(x??"").replace(/"/g,'""')}"`,r=[["Cave","Bank","Locality","NGR","Date","Surveyors","Species","Number","Sex","State","Location in cave","Ring/ID","Bat remarks","Visit notes"].map(q).join(",")];
+ caves().forEach(c=>V(c.id).forEach(v=>(v.bats.length?v.bats:[{}]).forEach(b=>r.push([c.name,c.bank,c.loc,c.ngr,v.date,v.surv,b.sp,b.n,b.sex,b.st,b.loc,b.ring,b.rem,v.notes].map(q).join(",")))));dl(`avon-gorge-bats-${d}.csv`,"\ufeff"+r.join("\n"),"text/csv")}
+$("imp").onchange=ev=>{const f=ev.target.files[0];if(!f)return;f.text().then(t=>{try{const j=JSON.parse(t);if(!j.visits)throw 0;if(confirm("Replace all records in this browser with the imported file?")){S={edits:j.edits||{},added:j.added||[],visits:j.visits};save();cur=null;refresh()}}catch(x){alert("Not a valid export file.")}})};
+$("q").oninput=$("bk").onchange=refresh;refresh();
+</script></body></html>
